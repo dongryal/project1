@@ -1,7 +1,7 @@
-
 import streamlit as st
 import json
 import os
+import html
 import difflib
 from datetime import datetime
 import pandas as pd
@@ -24,7 +24,7 @@ SOURCE_URL = "https://privacy.11st.co.kr/"
 
 FALLBACK_POLICY = (
     "(초기 전문이 아직 등록되지 않았습니다.)\n\n"
-    f"1) '{INITIAL_POLICY_PATH}' 파일에 11번가 개인정보처리방침 전문을 붙여넣은 뒤 앱을 다시 실행하거나,\n"
+    f"1) '{INITIAL_POLICY_PATH}' 파일에 개인정보처리방침 전문을 붙여넣은 뒤 앱을 다시 실행하거나,\n"
     "2) '2. 개인정보처리방침 수정' 메뉴에서 직접 본문을 입력해 저장해 주세요.\n\n"
     f"공식 원문 출처: {SOURCE_URL}"
 )
@@ -87,6 +87,50 @@ def next_major_version(current_version: str) -> str:
         return current_version + ".0"
 
 
+def build_html_export(entry: dict) -> str:
+    """버전 정보를 사람이 읽기 좋은 단일 HTML 문서로 변환한다."""
+    escaped_content = html.escape(entry["content"])
+    # 문단 구분을 위해 빈 줄 기준으로 <p> 처리, 줄바꿈은 <br>
+    paragraphs = escaped_content.split("\n\n")
+    body_html = "".join(
+        f"<p>{p.replace(chr(10), '<br>')}</p>" for p in paragraphs if p.strip()
+    )
+
+    return f"""<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<title>개인정보처리방침 v{html.escape(entry['version'])}</title>
+<style>
+  body {{
+    font-family: -apple-system, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+    max-width: 860px;
+    margin: 40px auto;
+    padding: 0 24px;
+    line-height: 1.7;
+    color: #1a1a1a;
+  }}
+  h1 {{ font-size: 24px; margin-bottom: 4px; }}
+  .meta {{ color: #666; font-size: 14px; margin-bottom: 32px; }}
+  .meta span {{ margin-right: 16px; }}
+  p {{ margin: 0 0 14px 0; white-space: pre-wrap; }}
+  hr {{ border: none; border-top: 1px solid #e0e0e0; margin: 24px 0; }}
+</style>
+</head>
+<body>
+  <h1>개인정보처리방침 (v{html.escape(entry['version'])})</h1>
+  <div class="meta">
+    <span>발행일: {html.escape(entry['date'])}</span>
+    <span>작성자: {html.escape(entry['editor'])}</span>
+    <span>개정 사유: {html.escape(entry['reason'])}</span>
+  </div>
+  <hr>
+  {body_html}
+</body>
+</html>
+"""
+
+
 # ----------------------------------------------------------------------------
 # 세션 상태 초기화
 # ----------------------------------------------------------------------------
@@ -103,9 +147,9 @@ st.sidebar.title("🔐 메뉴")
 menu = st.sidebar.radio(
     "이동할 메뉴를 선택하세요",
     [
-        "1. 개인정보처리방침 전문",
-        "2. 개인정보처리방침 수정",
-        "3. 개인정보처리방침 이력관리",
+        "1. 개인정보처리방침 전문 보기",
+        "2. 개인정보 처리방침 수정",
+        "3. 개인정보 처리방침 이력관리",
     ],
 )
 
@@ -118,14 +162,10 @@ st.sidebar.caption("공식 원문 출처")
 st.sidebar.markdown(f"[privacy.11st.co.kr]({SOURCE_URL})")
 
 # ----------------------------------------------------------------------------
-# 1. 개인정보처리방침 전문
+# 1. 개인정보처리방침 전문 보기
 # ----------------------------------------------------------------------------
 if menu.startswith("1"):
-    st.title("📄 개인정보처리방침 전문")
-
-    with st.expander("📎 공식 원문 페이지 (11번가)", expanded=False):
-        st.caption("전문 원본은 아래 공식 페이지에서 항상 최신 상태로 확인할 수 있습니다.")
-        components.iframe(SOURCE_URL, height=500, scrolling=True)
+    st.title("📄 개인정보처리방침 전문 보기")
 
     version_labels = [f"v{h['version']} ({h['date']})" for h in history]
     selected_idx = st.selectbox(
@@ -161,10 +201,10 @@ if menu.startswith("1"):
     st.text_area("전문", content, height=550, disabled=True, label_visibility="collapsed")
 
 # ----------------------------------------------------------------------------
-# 2. 개인정보처리방침 수정
+# 2. 개인정보 처리방침 수정
 # ----------------------------------------------------------------------------
 elif menu.startswith("2"):
-    st.title("✏️ 개인정보처리방침 수정")
+    st.title("✏️ 개인정보 처리방침 수정")
     st.caption(f"현재 최신 버전: v{latest['version']} ({latest['date']}, {latest['editor']})")
 
     with st.form("edit_form", clear_on_submit=False):
@@ -213,18 +253,60 @@ elif menu.startswith("2"):
             }
             history.append(new_entry)
             save_history(history)
-            st.success(f"v{new_version} 버전으로 저장되었습니다.")
+            st.session_state["just_saved_version"] = new_version
+            st.success(f"v{new_version} 버전으로 저장되었습니다. 아래에서 HTML로 다운로드할 수 있습니다.")
             st.rerun()
 
-    with st.expander("💡 최신 버전과 변경 전 내용 비교 미리보기", expanded=False):
-        st.caption("저장 전, 최신 버전(v{})과의 차이를 미리 확인하려면 아래를 펼쳐보세요.".format(latest["version"]))
-        st.info("실제 비교는 저장 후 '3. 개인정보처리방침 이력관리' 메뉴에서 두 버전을 선택해 확인할 수 있습니다.")
+    # 방금 저장한 버전이 있으면 HTML 다운로드 버튼을 보여준다 (폼 바깥, rerun 이후에도 유지)
+    just_saved = st.session_state.get("just_saved_version")
+    if just_saved:
+        saved_entry = next((h for h in history if h["version"] == just_saved), None)
+        if saved_entry:
+            st.markdown("---")
+            st.subheader(f"📥 방금 저장한 v{just_saved} 버전 다운로드")
+            html_doc = build_html_export(saved_entry)
+            dl_col1, dl_col2 = st.columns(2)
+            with dl_col1:
+                st.download_button(
+                    "⬇️ HTML 파일로 다운로드",
+                    data=html_doc,
+                    file_name=f"privacy_policy_v{just_saved}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                )
+            with dl_col2:
+                st.download_button(
+                    "⬇️ 텍스트 파일로 다운로드",
+                    data=saved_entry["content"],
+                    file_name=f"privacy_policy_v{just_saved}.txt",
+                    mime="text/plain",
+                    use_container_width=True,
+                )
+
+    st.markdown("---")
+    st.subheader("📥 임의 버전 HTML 다운로드")
+    st.caption("최신 버전뿐 아니라 이력에 있는 어떤 버전이든 HTML로 내려받을 수 있습니다.")
+    export_labels = [f"v{h['version']} ({h['date']})" for h in history]
+    export_idx = st.selectbox(
+        "다운로드할 버전 선택",
+        options=list(range(len(history))),
+        format_func=lambda i: export_labels[i],
+        index=len(history) - 1,
+        key="export_select",
+    )
+    export_entry = history[export_idx]
+    st.download_button(
+        f"⬇️ v{export_entry['version']} HTML 다운로드",
+        data=build_html_export(export_entry),
+        file_name=f"privacy_policy_v{export_entry['version']}.html",
+        mime="text/html",
+    )
 
 # ----------------------------------------------------------------------------
-# 3. 개인정보처리방침 이력관리
+# 3. 개인정보 처리방침 이력관리
 # ----------------------------------------------------------------------------
 else:
-    st.title("🗂️ 개인정보처리방침 이력관리")
+    st.title("🗂️ 개인정보 처리방침 이력관리")
 
     df = pd.DataFrame(
         [

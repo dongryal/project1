@@ -1,3 +1,4 @@
+
 import streamlit as st
 import json
 import os
@@ -17,31 +18,31 @@ st.set_page_config(
 
 DATA_DIR = "data"
 DATA_PATH = os.path.join(DATA_DIR, "policy_history.json")
+INITIAL_POLICY_PATH = os.path.join(DATA_DIR, "initial_policy.txt")
 
-DEFAULT_POLICY = """제1조(목적)
-이 개인정보처리방침은 회사가 제공하는 서비스 이용과 관련하여 이용자의 개인정보를 어떻게 수집·이용·보관·파기하는지를 설명합니다.
+SOURCE_URL = "https://privacy.11st.co.kr/"
 
-제2조(수집하는 개인정보 항목)
-회사는 서비스 제공을 위해 아래와 같은 개인정보를 수집합니다.
-- 필수항목: 이름, 이메일, 휴대전화번호
-- 선택항목: 생년월일, 주소
-
-제3조(개인정보의 수집 및 이용 목적)
-회사는 수집한 개인정보를 다음의 목적을 위해 활용합니다.
-1. 회원 가입 의사 확인 및 본인 식별
-2. 서비스 제공 및 계약 이행
-3. 고객 상담 및 불만 처리
-
-제4조(개인정보의 보유 및 이용기간)
-회사는 원칙적으로 개인정보 수집 및 이용목적이 달성된 후에는 해당 정보를 지체 없이 파기합니다.
-
-(※ 본문은 예시입니다. '개인정보처리방침 수정' 메뉴에서 실제 내용으로 교체해 주세요.)
-"""
+FALLBACK_POLICY = (
+    "(초기 전문이 아직 등록되지 않았습니다.)\n\n"
+    f"1) '{INITIAL_POLICY_PATH}' 파일에 11번가 개인정보처리방침 전문을 붙여넣은 뒤 앱을 다시 실행하거나,\n"
+    "2) '2. 개인정보처리방침 수정' 메뉴에서 직접 본문을 입력해 저장해 주세요.\n\n"
+    f"공식 원문 출처: {SOURCE_URL}"
+)
 
 
 # ----------------------------------------------------------------------------
 # 데이터 입출력 함수
 # ----------------------------------------------------------------------------
+def load_initial_content() -> str:
+    """data/initial_policy.txt 파일이 있으면 그 내용을, 없으면 안내 문구를 반환한다."""
+    if os.path.exists(INITIAL_POLICY_PATH):
+        with open(INITIAL_POLICY_PATH, "r", encoding="utf-8") as f:
+            content = f.read().strip()
+        if content:
+            return content
+    return FALLBACK_POLICY
+
+
 def load_history():
     """저장된 이력 파일을 불러오거나, 없으면 최초 버전을 생성한다."""
     if not os.path.exists(DATA_PATH):
@@ -51,8 +52,8 @@ def load_history():
                 "version": "1.0",
                 "date": datetime.now().strftime("%Y-%m-%d"),
                 "editor": "관리자",
-                "reason": "최초 제정",
-                "content": DEFAULT_POLICY,
+                "reason": "최초 등록",
+                "content": load_initial_content(),
             }
         ]
         save_history(initial_history)
@@ -112,12 +113,19 @@ st.sidebar.markdown("---")
 st.sidebar.metric("현재 버전", f"v{latest['version']}")
 st.sidebar.caption(f"최종 수정일: {latest['date']}")
 st.sidebar.caption(f"최종 수정자: {latest['editor']}")
+st.sidebar.markdown("---")
+st.sidebar.caption("공식 원문 출처")
+st.sidebar.markdown(f"[privacy.11st.co.kr]({SOURCE_URL})")
 
 # ----------------------------------------------------------------------------
 # 1. 개인정보처리방침 전문
 # ----------------------------------------------------------------------------
 if menu.startswith("1"):
     st.title("📄 개인정보처리방침 전문")
+
+    with st.expander("📎 공식 원문 페이지 (11번가)", expanded=False):
+        st.caption("전문 원본은 아래 공식 페이지에서 항상 최신 상태로 확인할 수 있습니다.")
+        components.iframe(SOURCE_URL, height=500, scrolling=True)
 
     version_labels = [f"v{h['version']} ({h['date']})" for h in history]
     selected_idx = st.selectbox(
